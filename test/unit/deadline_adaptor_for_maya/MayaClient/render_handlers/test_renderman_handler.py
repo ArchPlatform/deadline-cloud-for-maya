@@ -100,3 +100,54 @@ class TestRenderManHandler:
 
         # THEN
         mock_cmds.setAttr.assert_not_called()
+
+    @pytest.mark.parametrize("empty_path", ["", None])
+    @patch("deadline.maya_adaptor.MayaClient.render_handlers.renderman_handler.DirectoryMapping")
+    @patch("deadline.maya_adaptor.MayaClient.render_handlers.renderman_handler.maya.cmds")
+    def test_renderman_texture_pathmapping_skips_empty_paths(
+        self, mock_cmds, mock_dirmap, empty_path
+    ) -> None:
+        """Tests that empty filenames are skipped, since dirmap errors on them"""
+        # GIVEN
+        handler = RenderManHandler()
+        mock_dirmap.get_activated.return_value = True
+        mock_cmds.ls.side_effect = lambda type=None: (["bump1"] if type == "PxrBump" else [])
+        mock_cmds.getAttr.return_value = empty_path
+
+        # WHEN
+        handler.set_renderman_texture_pathmapping({})
+
+        # THEN
+        mock_dirmap.convert.assert_not_called()
+        mock_cmds.setAttr.assert_not_called()
+
+    @patch("deadline.maya_adaptor.MayaClient.render_handlers.renderman_handler.DirectoryMapping")
+    @patch("deadline.maya_adaptor.MayaClient.render_handlers.renderman_handler.maya.cmds")
+    def test_renderman_texture_pathmapping_continues_after_convert_error(
+        self, mock_cmds, mock_dirmap
+    ) -> None:
+        """Tests that a dirmap error on one node does not stop remapping of the others"""
+        # GIVEN
+        handler = RenderManHandler()
+        mock_dirmap.get_activated.return_value = True
+        mock_cmds.ls.side_effect = lambda type=None: (
+            ["bad_tex", "good_tex"] if type == "PxrTexture" else []
+        )
+        mock_cmds.getAttr.side_effect = lambda attr: (
+            "bad" if attr == "bad_tex.filename" else "C:\\tex\\good.png"
+        )
+
+        def convert(path: str) -> str:
+            if path == "bad":
+                raise RuntimeError("Maya command error")
+            return "/mnt/tex/good.png"
+
+        mock_dirmap.convert.side_effect = convert
+
+        # WHEN
+        handler.set_renderman_texture_pathmapping({})
+
+        # THEN
+        mock_cmds.setAttr.assert_called_once_with(
+            "good_tex.filename", "/mnt/tex/good.png", type="string"
+        )

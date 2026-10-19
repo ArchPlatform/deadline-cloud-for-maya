@@ -81,8 +81,20 @@ class RenderManHandler(DefaultMayaHandler):
             for node in maya.cmds.ls(type=node_type) or []:
                 attr: str = f"{node}.filename"
                 old_path: str = maya.cmds.getAttr(attr)
+                # Nodes driven by a connection (e.g. PxrBump/PxrNormalMap) often
+                # have an empty filename, and dirmap errors on an empty path.
+                if not old_path:
+                    continue
                 # Apply dirmap to convert the path (e.g. Windows -> Linux)
-                new_path: str = DirectoryMapping.convert(old_path)
+                try:
+                    new_path: str = DirectoryMapping.convert(old_path)
+                except RuntimeError as e:
+                    print(
+                        f"WARNING: RenderMan texture pathmapping failed for {attr} "
+                        f"('{old_path}'): {e}",
+                        flush=True,
+                    )
+                    continue
                 if new_path != old_path:
                     maya.cmds.setAttr(attr, new_path, type="string")
                     print(
